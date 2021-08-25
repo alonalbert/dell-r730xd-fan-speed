@@ -3,6 +3,7 @@
 import argparse
 import logging
 import subprocess
+import time
 from collections import namedtuple
 from logging.handlers import RotatingFileHandler
 
@@ -64,7 +65,11 @@ def main():
       set_fan_control(False)
       set_fan_speed(fan_speed)
     else:
-      log(logging.INFO, "  Max CPU temp is %d. Nothing to do" % temp)
+      fan_speed = sorted(FAN_SPEED_MAP.values())[0]
+      log(logging.INFO, "  Max CPU temp is %d. Setting fan speed to lowest setting %d%%" % (temp, fan_speed))
+
+  time.sleep(10)
+  log_sensors(read_sensors())
 
 def execute(command):
   log(logging.DEBUG, "  %s" % command)
