@@ -6,9 +6,23 @@ import subprocess
 from collections import namedtuple
 from logging.handlers import RotatingFileHandler
 
+FanSpeed = namedtuple("TempFanSpeed", [
+  "cpuTemp",
+  "fanSpeedPercent",
+])
+
+FAN_SPEED_MAP = {
+  48: 50,
+  47: 45,
+  46: 40,
+  45: 35,
+  44: 30,
+  43: 25,
+  42: 20,
+}
+
 MAX_EXHAUST_TEMP = 35.0
-MAX_CPU_TEMP = 45.0
-FAN_SPEED_PERCENT = 20
+MAX_CPU_TEMP = sorted(FAN_SPEED_MAP.keys())[len(FAN_SPEED_MAP) - 1]
 
 LOG_MAX_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 5
@@ -27,6 +41,30 @@ Sensors = namedtuple("Sensors", [
   "fan6Speed",
 ])
 
+def main():
+  log(logging.INFO, "Reading sensors:")
+  sensors = read_sensors()
+  log_sensors(sensors)
+
+  fan_control = sensors.fan1Speed > 6000
+  temp_exceeded = \
+    check_temp(sensors.exhaustTemp, MAX_EXHAUST_TEMP, "Exhaust") or \
+    check_temp(sensors.cpu1Temp, MAX_CPU_TEMP, "CPU1") or \
+    check_temp(sensors.cpu2Temp, MAX_CPU_TEMP, "CPU2")
+
+  if temp_exceeded:
+    level = logging.INFO if not fan_control else logging.DEBUG
+    log(level, "  Turning on fan control")
+    set_fan_control(True)
+  else:
+    temp = int(max(sensors.cpu1Temp, sensors.cpu2Temp))
+    fan_speed = FAN_SPEED_MAP.get(temp)
+    if fan_speed is not None:
+      log(logging.INFO, "  Max CPU temp is %d. Setting fan speed to %d%%" % (temp, fan_speed))
+      set_fan_control(False)
+      set_fan_speed(fan_speed)
+    else:
+      log(logging.INFO, "  Max CPU temp is %d. Nothing to do" % temp)
 
 def execute(command):
   log(logging.DEBUG, "  %s" % command)
@@ -38,15 +76,15 @@ def execute(command):
 
 def read_sensors():
   lines = execute("ipmitool sensor").splitlines()
-  exhaustTemp = None
-  cpu1Temp = None
-  cpu2Temp = None
-  fan1Speed = None
-  fan2Speed = None
-  fan3Speed = None
-  fan4Speed = None
-  fan5Speed = None
-  fan6Speed = None
+  exhaust_temp = None
+  cpu1_temp = None
+  cpu2_temp = None
+  fan1_speed = None
+  fan2_speed = None
+  fan3_speed = None
+  fan4_speed = None
+  fan5_speed = None
+  fan6_speed = None
 
   for line in lines:
     split = line.split("|")
@@ -54,26 +92,26 @@ def read_sensors():
     value = split[1].strip()
 
     if name == "Exhaust Temp":
-      exhaustTemp = float(value)
+      exhaust_temp = float(value)
     elif name == "Temp":
-      if cpu1Temp is None:
-        cpu1Temp = float(value)
+      if cpu1_temp is None:
+        cpu1_temp = float(value)
       else:
-        cpu2Temp = float(value)
+        cpu2_temp = float(value)
     elif name == "Fan1 RPM":
-      fan1Speed = float(value)
+      fan1_speed = float(value)
     elif name == "Fan2 RPM":
-      fan2Speed = float(value)
+      fan2_speed = float(value)
     elif name == "Fan3 RPM":
-      fan3Speed = float(value)
+      fan3_speed = float(value)
     elif name == "Fan4 RPM":
-      fan4Speed = float(value)
+      fan4_speed = float(value)
     elif name == "Fan5 RPM":
-      fan5Speed = float(value)
+      fan5_speed = float(value)
     elif name == "Fan6 RPM":
-      fan6Speed = float(value)
+      fan6_speed = float(value)
 
-  return Sensors(exhaustTemp, cpu1Temp, cpu2Temp, fan1Speed, fan2Speed, fan3Speed, fan4Speed, fan5Speed, fan6Speed)
+  return Sensors(exhaust_temp, cpu1_temp, cpu2_temp, fan1_speed, fan2_speed, fan3_speed, fan4_speed, fan5_speed, fan6_speed)
 
 
 def set_fan_control(enabled):
@@ -87,25 +125,18 @@ def set_fan_speed(percent):
 def log_sensors(sensors):
   log(
     logging.INFO,
-    "  Sensors: %0.1f %0.1f %0.1f %0.1f %0.1f %0.1f %0.1f %0.1f %0.1f"
+    "  Sensors: %0.1f %0.1f %0.1f %0.1f"
     % (
       sensors.exhaustTemp,
       sensors.cpu1Temp,
       sensors.cpu2Temp,
       sensors.fan1Speed,
-      sensors.fan2Speed,
-      sensors.fan3Speed,
-      sensors.fan4Speed,
-      sensors.fan5Speed,
-      sensors.fan6Speed,
     ))
 
 
-def check_temp(temp, maxTemp, fan_control):
-  if temp > maxTemp:
-    if not fan_control:
-      level = logging.INFO if not fan_control else logging.DEBUG
-      log(level, "  Exhaust temp %0.1f exceeded %0.1f" % (temp, maxTemp))
+def check_temp(temp, max_temp, name):
+  if temp > max_temp:
+    log(logging.INFO, "  %s temp %0.1f exceeded %0.1f" % (name, temp, max_temp))
     return True
   return False
 
@@ -115,28 +146,6 @@ def log(level, message):
     print(message)
   else:
     logger.log(level, message)
-
-
-def main():
-  log(logging.INFO, "Reading sensors:")
-  sensors = read_sensors()
-  log_sensors(sensors)
-
-  fan_control = sensors.fan1Speed > 6000
-  temp_exceeded = \
-    check_temp(sensors.exhaustTemp, MAX_EXHAUST_TEMP, fan_control) or \
-    check_temp(sensors.cpu1Temp, MAX_CPU_TEMP, fan_control) or \
-    check_temp(sensors.cpu2Temp, MAX_CPU_TEMP, fan_control)
-
-  if temp_exceeded:
-    level = logging.INFO if not fan_control else logging.DEBUG
-    log(level, "  Turning on fan control")
-    set_fan_control(True)
-  else:
-    level = logging.INFO if fan_control else logging.DEBUG
-    log(level, "  Turning off fan control and setting speed to %s%%" % FAN_SPEED_PERCENT)
-    set_fan_control(False)
-    set_fan_speed(FAN_SPEED_PERCENT)
 
 def setup_logger(filename):
   if filename is not None:
@@ -150,7 +159,8 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("--log", "-l", dest="log", default=None)
   args = parser.parse_args()
-  logger = logging.getLogger("Dell PowerEdge 730xd Fan Control")
-  setup_logger(args.log)
+  if args.log is not None:
+    logger = logging.getLogger("Dell PowerEdge 730xd Fan Control")
+    setup_logger(args.log)
 
   main()
