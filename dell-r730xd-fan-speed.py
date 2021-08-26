@@ -62,7 +62,7 @@ def main():
     level = logging.INFO if not fan_control else logging.DEBUG
     log(level, "  Turning on fan control")
     set_fan_control(True)
-    db_insert("INSERT INTO FanControl VALUES(CURRENT_TIMESTAMP, 0, TRUE)", None)
+    db_insert("INSERT INTO FanControl(percent, auto) VALUES(0, TRUE)", [])
   else:
     temp = int(max(sensors.temp_cpu1, sensors.temp_cpu2))
     fan_power = FAN_SPEED_MAP.get(temp)
@@ -74,7 +74,7 @@ def main():
 
     set_fan_control(False)
     set_fan_power(fan_power)
-    db_insert("INSERT INTO FanControl VALUES(CURRENT_TIMESTAMP, ?, FALSE)", [fan_power])
+    db_insert("INSERT INTO FanControl(percent, auto) VALUES(?, FALSE)", [fan_power])
 
   time.sleep(10)
   log_sensors(read_sensors())
@@ -146,7 +146,20 @@ def log_sensors(sensors):
       "  Sensors: Intel: %dc Exhaust: %dc CPU1: %dc CPU2: %dc Fans: ~%d rpm"
       % (sensors.temp_inlet, sensors.temp_exhaust, sensors.temp_cpu1, sensors.temp_cpu2, sensors.rpm_fan1))
   db_insert(
-    "INSERT INTO Sensors VALUES(CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    """
+    INSERT INTO Sensors(
+      temp_inlet, 
+      temp_exhaust, 
+      temp_cpu1,
+      temp_cpu2,
+      rpm_fan1,
+      rpm_fan2,
+      rpm_fan3,
+      rpm_fan4,
+      rpm_fan5,
+      rpm_fan6
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """,
     [sensors.temp_inlet,
      sensors.temp_exhaust,
      sensors.temp_cpu1,
@@ -205,7 +218,7 @@ if __name__ == '__main__':
     log(logging.ERROR, "Unexpected error: %s" % sys.exc_info()[0])
     log(logging.WARN, "Turning on auto fan control")
     set_fan_control(True)
-    db_insert("INSERT INTO FanControl VALUES(CURRENT_TIMESTAMP, 0, TRUE)", None)
+    db_insert("INSERT INTO FanControl(percent, auto) VALUES(0, TRUE)", [])
     raise
   finally:
     if db is not None:
